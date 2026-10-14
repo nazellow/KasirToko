@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#166534">
 <title>SembakoKasir</title>
+<script src="https://unpkg.com/html5-qrcode"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:Arial,sans-serif;background:#f1f5f2;color:#17251b}
@@ -15,20 +16,21 @@ header p{margin:7px 0 0;font-size:13px}
 main{max-width:750px;margin:auto;padding:14px}
 .card{background:white;border-radius:14px;padding:15px;margin-bottom:14px;box-shadow:0 2px 8px #0000000a}
 h2{font-size:17px;margin:0 0 12px}
-input,button{font:inherit;padding:11px;border-radius:9px}
-input{width:100%;border:1px solid #ccd5ce;margin:4px 0 9px}
+input,button,select{font:inherit;padding:11px;border-radius:9px}
+input,select{width:100%;border:1px solid #ccd5ce;margin:4px 0 9px;background:white;color:#17251b}
 button{border:0;background:#166534;color:white;cursor:pointer}
-button:active{opacity:.8}
+button:disabled{opacity:.5}
+.full{width:100%}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .product{border:1px solid #e0e7e1;padding:11px;border-radius:10px;margin:7px 0}
 .product b{display:block;margin-bottom:5px}
-.small{font-size:13px;color:#657368}
-.price{font-weight:bold;color:#166534;margin:7px 0}
-.full{width:100%}
+.small,.notice{font-size:13px;color:#657368}
+.price,.total{font-weight:bold;color:#166534}
+.total{font-size:21px}
 .line{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid #eee}
 .line button{padding:6px 10px}
-.total{font-size:21px;font-weight:bold;color:#166534}
-.notice{font-size:13px;color:#657368;line-height:1.5}
+#reader{width:100%;overflow:hidden;border-radius:10px;margin:10px 0}
+.notice{line-height:1.5}
 </style>
 </head>
 <body>
@@ -37,6 +39,16 @@ button:active{opacity:.8}
 <p>Kasir toko sembako sederhana</p>
 </header>
 <main>
+
+<section class="card">
+<h2>📷 Scan Barcode</h2>
+<p class="notice">Arahkan kamera ke barcode produk yang sudah terdaftar. Pastikan internet aktif dan izinkan akses kamera.</p>
+<button id="startBtn" class="full" onclick="mulaiScan()">Buka Kamera & Scan</button>
+<div id="reader"></div>
+<button id="stopBtn" class="full" style="display:none;background:#64748b" onclick="berhentiScan()">Tutup Kamera</button>
+<p id="scanStatus" class="notice">Kamera belum dibuka.</p>
+</section>
+
 <section class="card">
 <h2>🔎 Cari Produk</h2>
 <input id="cari" placeholder="Ketik nama produk..." oninput="tampilProduk()">
@@ -56,9 +68,11 @@ button:active{opacity:.8}
 <section class="card">
 <h2>📦 Tambah Produk</h2>
 <label>Nama barang</label>
-<input id="nama" placeholder="Contoh: Gula pasir">
+<input id="nama" placeholder="Contoh: Indomie goreng">
+<label>Barcode (opsional)</label>
+<input id="barcode" inputmode="numeric" placeholder="Nomor di bawah barcode">
 <div class="grid">
-<div><label>Harga jual (Rp)</label><input id="harga" type="number" min="1" placeholder="15000"></div>
+<div><label>Harga jual (Rp)</label><input id="harga" type="number" min="1" placeholder="3500"></div>
 <div><label>Stok awal</label><input id="stok" type="number" min="0" placeholder="10"></div>
 </div>
 <button class="full" onclick="tambahProduk()">Simpan Produk</button>
@@ -67,44 +81,79 @@ button:active{opacity:.8}
 <section class="card">
 <h2>📥 Tambah Stok</h2>
 <label>Pilih barang</label>
-<select id="pilihStok" style="width:100%;padding:10px;border-radius:9px;margin:5px 0 10px"></select>
+<select id="pilihStok"></select>
 <label>Jumlah stok masuk</label>
 <input id="jumlahStok" type="number" min="1" placeholder="Contoh: 5">
 <button class="full" onclick="restok()">Tambah Stok</button>
 </section>
 
 <section class="card">
-<h2>📊 Ringkasan Hari Ini</h2>
+<h2>📊 Ringkasan Penjualan</h2>
 <div class="line"><span>Jumlah transaksi</span><b id="jumlahTransaksi">0</b></div>
 <div class="line"><span>Total penjualan</span><b id="penjualan">Rp0</b></div>
 <h2 style="margin-top:18px">Riwayat Transaksi</h2>
 <div id="riwayat" class="notice">Belum ada transaksi.</div>
 </section>
-<p class="notice">Data disimpan di browser perangkat ini. Jangan hapus data situs sebelum membuat cadangan. Versi awal ini belum memiliki sinkronisasi antarperangkat, scanner barcode, atau pengenalan foto AI.</p>
+
+<p class="notice">Data tersimpan di browser perangkat ini. Buat backup berkala. Scanner membutuhkan internet untuk memuat pustaka pemindai. Belum ada sinkronisasi antarperangkat.</p>
 </main>
+
 <script>
 const kunci="sembakoKasirV1";
 let data;
-try{data=JSON.parse(localStorage.getItem(kunci))||{barang:[],keranjang:{},riwayat:[]}}catch(e){data={barang:[],keranjang:{},riwayat:[]}}
+try{
+ data=JSON.parse(localStorage.getItem(kunci))||{barang:[],keranjang:{},riwayat:[]};
+ if(!Array.isArray(data.barang))data.barang=[];
+ if(!data.keranjang)data.keranjang={};
+ if(!Array.isArray(data.riwayat))data.riwayat=[];
+}catch(e){data={barang:[],keranjang:{},riwayat:[]}}
+
 const rupiah=n=>"Rp"+Number(n||0).toLocaleString("id-ID");
 const simpan=()=>localStorage.setItem(kunci,JSON.stringify(data));
-function totalBelanja(){return Object.entries(data.keranjang).reduce((s,[id,j])=>{let p=data.barang.find(x=>x.id===Number(id));return s+(p?p.harga*j:0)},0)}
+let scanner=null;
+let sedangScan=false;
+let scanDiproses=false;
+
+function totalBelanja(){
+ return Object.entries(data.keranjang).reduce((s,[id,j])=>{
+  let p=data.barang.find(x=>x.id===Number(id));
+  return s+(p?p.harga*j:0);
+ },0);
+}
+
 function tampilProduk(){
  let q=document.getElementById("cari").value.toLowerCase();
  let hasil=data.barang.filter(p=>p.nama.toLowerCase().includes(q));
- document.getElementById("produk").innerHTML=hasil.length?hasil.map(p=>`<div class="product"><b>${p.nama}</b><span class="small">Stok: ${p.stok}</span><div class="price">${rupiah(p.harga)}</div><button onclick="tambahKeranjang(${p.id})" ${p.stok<1?"disabled":""}>+ Keranjang</button></div>`).join(""):"<p class='notice'>Produk belum ada. Tambahkan produk di bawah.</p>";
+ document.getElementById("produk").innerHTML=hasil.length?
+ hasil.map(p=>`<div class="product"><b>${p.nama}</b>
+ <span class="small">Stok: ${p.stok}${p.barcode?" · Barcode: "+p.barcode:" · Barcode belum diisi"}</span>
+ <div class="price">${rupiah(p.harga)}</div>
+ <button onclick="tambahKeranjang(${p.id})" ${p.stok<1?"disabled":""}>+ Keranjang</button></div>`).join("")
+ :"<p class='notice'>Produk belum ada.</p>";
 }
+
 function tampilKeranjang(){
  let entries=Object.entries(data.keranjang).filter(([id,j])=>j>0);
- document.getElementById("keranjang").innerHTML=entries.length?entries.map(([id,j])=>{let p=data.barang.find(x=>x.id===Number(id));return p?`<div class="line"><div><b>${p.nama}</b><div class="small">${j} × ${rupiah(p.harga)}</div></div><div><b>${rupiah(j*p.harga)}</b><br><button onclick="ubah(${p.id},-1)">−</button> <button onclick="ubah(${p.id},1)">+</button></div></div>`:""}).join(""):"Belum ada barang.";
+ document.getElementById("keranjang").innerHTML=entries.length?
+ entries.map(([id,j])=>{
+  let p=data.barang.find(x=>x.id===Number(id));
+  return p?`<div class="line"><div><b>${p.nama}</b>
+  <div class="small">${j} × ${rupiah(p.harga)}</div></div>
+  <div><b>${rupiah(j*p.harga)}</b><br>
+  <button onclick="ubah(${p.id},-1)">−</button>
+  <button onclick="ubah(${p.id},1)">+</button></div></div>`:"";
+ }).join(""):"Belum ada barang.";
  document.getElementById("total").textContent=rupiah(totalBelanja());
  hitungKembalian();
 }
+
 function tambahKeranjang(id){
  let p=data.barang.find(x=>x.id===id);
- if(!p|| (data.keranjang[id]||0)>=p.stok)return alert("Stok tidak mencukupi!");
- data.keranjang[id]=(data.keranjang[id]||0)+1;simpan();render();
+ if(!p||(data.keranjang[id]||0)>=p.stok)return alert("Stok tidak mencukupi!");
+ data.keranjang[id]=(data.keranjang[id]||0)+1;
+ simpan();render();
 }
+
 function ubah(id,n){
  let p=data.barang.find(x=>x.id===id);
  let baru=(data.keranjang[id]||0)+n;
@@ -113,54 +162,127 @@ function ubah(id,n){
  if(baru===0)delete data.keranjang[id];else data.keranjang[id]=baru;
  simpan();render();
 }
+
 function tambahProduk(){
  let nama=document.getElementById("nama").value.trim();
+ let barcode=document.getElementById("barcode").value.trim();
  let harga=Number(document.getElementById("harga").value);
  let stok=Number(document.getElementById("stok").value);
- if(!nama||harga<=0||!Number.isInteger(stok)||stok<0)return alert("Isi nama, harga, dan stok dengan benar.");
- data.barang.push({id:Date.now(),nama,harga,stok});
+ if(!nama||harga<=0||!Number.isInteger(stok)||stok<0)
+  return alert("Isi nama, harga, dan stok dengan benar.");
+ if(barcode&&data.barang.some(p=>p.barcode===barcode))
+  return alert("Barcode sudah dipakai produk lain.");
+ data.barang.push({id:Date.now(),nama,barcode,harga,stok});
  simpan();
- document.getElementById("nama").value="";
- document.getElementById("harga").value="";
- document.getElementById("stok").value="";
+ ["nama","barcode","harga","stok"].forEach(id=>document.getElementById(id).value="");
  render();alert("Produk berhasil disimpan!");
 }
+
 function restok(){
  let id=Number(document.getElementById("pilihStok").value);
  let jumlah=Number(document.getElementById("jumlahStok").value);
  let p=data.barang.find(x=>x.id===id);
- if(!p||!Number.isInteger(jumlah)||jumlah<1)return alert("Pilih barang dan isi jumlah dengan benar.");
- p.stok+=jumlah;simpan();document.getElementById("jumlahStok").value="";render();alert("Stok berhasil ditambahkan.");
+ if(!p||!Number.isInteger(jumlah)||jumlah<1)
+  return alert("Pilih barang dan isi jumlah dengan benar.");
+ p.stok+=jumlah;simpan();
+ document.getElementById("jumlahStok").value="";
+ render();alert("Stok berhasil ditambahkan.");
 }
+
 function hitungKembalian(){
  let bayar=Number(document.getElementById("bayar").value)||0;
  let total=totalBelanja();
  document.getElementById("kembali").textContent=rupiah(Math.max(0,bayar-total));
 }
+
 function checkout(){
  let total=totalBelanja(),bayar=Number(document.getElementById("bayar").value)||0;
  if(total<=0)return alert("Keranjang masih kosong.");
  if(bayar<total)return alert("Uang pelanggan masih kurang!");
  for(let [id,j] of Object.entries(data.keranjang)){
   let p=data.barang.find(x=>x.id===Number(id));
-  if(!p||p.stok<j)return alert("Stok berubah atau tidak mencukupi.");
+  if(!p||p.stok<j)return alert("Stok tidak mencukupi.");
  }
  for(let [id,j] of Object.entries(data.keranjang)){
   data.barang.find(x=>x.id===Number(id)).stok-=j;
  }
  data.riwayat.unshift({waktu:new Date().toLocaleString("id-ID"),total,bayar,kembali:bayar-total});
- data.keranjang={};simpan();document.getElementById("bayar").value="";render();
- alert("Transaksi berhasil! Kembalian: "+rupiah(bayar-total));
+ data.keranjang={};simpan();
+ document.getElementById("bayar").value="";
+ render();alert("Transaksi berhasil! Kembalian: "+rupiah(bayar-total));
 }
+
 function render(){
  tampilProduk();tampilKeranjang();
- document.getElementById("pilihStok").innerHTML=data.barang.map(p=>`<option value="${p.id}">${p.nama} (stok ${p.stok})</option>`).join("");
+ document.getElementById("pilihStok").innerHTML=data.barang.map(p=>
+ `<option value="${p.id}">${p.nama} (stok ${p.stok})</option>`).join("");
  document.getElementById("jumlahTransaksi").textContent=data.riwayat.length;
  document.getElementById("penjualan").textContent=rupiah(data.riwayat.reduce((s,t)=>s+t.total,0));
- document.getElementById("riwayat").innerHTML=data.riwayat.length?data.riwayat.slice(0,30).map(t=>`<div class="product"><b>${t.waktu}</b><div>Total: ${rupiah(t.total)}</div><div>Bayar: ${rupiah(t.bayar)} · Kembali: ${rupiah(t.kembali)}</div></div>`).join(""):"Belum ada transaksi.";
+ document.getElementById("riwayat").innerHTML=data.riwayat.length?
+ data.riwayat.slice(0,30).map(t=>`<div class="product"><b>${t.waktu}</b>
+ <div>Total: ${rupiah(t.total)}</div>
+ <div>Bayar: ${rupiah(t.bayar)} · Kembali: ${rupiah(t.kembali)}</div></div>`).join("")
+ :"Belum ada transaksi.";
 }
+
+async function mulaiScan(){
+ if(sedangScan)return;
+ if(!window.Html5Qrcode){
+  document.getElementById("scanStatus").textContent="Pemindai gagal dimuat. Periksa internet lalu muat ulang situs.";
+  return;
+ }
+ try{
+  scanDiproses=false;
+  scanner=new Html5Qrcode("reader");
+  document.getElementById("scanStatus").textContent="Meminta izin kamera...";
+  await scanner.start(
+   {facingMode:"environment"},
+   {fps:10,qrbox:{width:250,height:150}},
+   async hasil=>{
+    if(scanDiproses)return;
+    scanDiproses=true;
+    let barcode=String(hasil).trim();
+    await berhentiScan();
+    let p=data.barang.find(x=>String(x.barcode||"").trim()===barcode);
+    if(p){
+     if((data.keranjang[p.id]||0)>=p.stok){
+      alert("Barcode cocok dengan "+p.nama+", tetapi stok tidak mencukupi.");
+     }else{
+      data.keranjang[p.id]=(data.keranjang[p.id]||0)+1;
+      simpan();render();
+      document.getElementById("scanStatus").textContent="Berhasil: "+p.nama;
+      alert("Berhasil menambahkan "+p.nama+" ke keranjang!");
+     }
+    }else{
+     document.getElementById("barcode").value=barcode;
+     document.getElementById("scanStatus").textContent="Barcode belum terdaftar: "+barcode;
+     alert("Barcode belum terdaftar. Tambahkan produk dengan nomor barcode ini, lalu simpan.");
+     document.getElementById("nama").focus();
+    }
+   },
+   ()=>{}
+  );
+  sedangScan=true;
+  document.getElementById("startBtn").style.display="none";
+  document.getElementById("stopBtn").style.display="block";
+  document.getElementById("scanStatus").textContent="Kamera aktif. Arahkan ke barcode.";
+ }catch(e){
+  scanner=null;sedangScan=false;
+  document.getElementById("scanStatus").textContent="Kamera gagal dibuka. Izinkan kamera dan gunakan situs HTTPS.";
+  alert("Kamera tidak bisa dibuka. Periksa izin kamera browser dan pastikan internet aktif.");
+ }
+}
+
+async function berhentiScan(){
+ if(scanner&&sedangScan){
+  try{await scanner.stop();scanner.clear();}catch(e){}
+ }
+ scanner=null;sedangScan=false;
+ document.getElementById("startBtn").style.display="block";
+ document.getElementById("stopBtn").style.display="none";
+}
+
 render();
 </script>
 </body>
-  </html>
-  
+</html>
